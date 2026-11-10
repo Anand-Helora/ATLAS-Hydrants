@@ -1,0 +1,14 @@
+{
+  "name": "atlas-hydrants",
+  "version": "0.1.0",
+  "description": "Application web mobile de relevé des contrôles d'hydrants avec export CSV historique (données locales uniquement)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "start": "node scripts/serve.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
