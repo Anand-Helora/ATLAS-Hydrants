@@ -123,20 +123,39 @@ function openForm(record) {
   $('titre').focus();
 }
 
+/** Verrouille le formulaire pendant une écriture, pour qu'aucune saisie ne s'y perde. */
+function setFormBusy(busy) {
+  state.busy = busy;
+  const form = $('form');
+  form.inert = busy;
+  form.setAttribute('aria-busy', busy ? 'true' : 'false');
+  $('btn-save').disabled = busy;
+}
+
 async function onSubmit(event) {
   event.preventDefault();
   if (state.busy) return;
   clearMessage();
   stopScan();
-  state.busy = true;
-  $('btn-save').disabled = true;
+  // Valeurs réellement soumises : seules celles-ci sont considérées comme enregistrées.
+  const submitted = readForm();
+  const submittedSnapshot = JSON.stringify(submitted);
+  setFormBusy(true);
   try {
-    const saved = await state.repo.save(readForm(), state.editingId ?? undefined);
+    const saved = await state.repo.save(submitted, state.editingId ?? undefined);
     await refreshRecords();
     const wasEdit = Boolean(state.editingId);
     state.editingId = saved.id;
-    state.savedSnapshot = snapshot();
+    state.savedSnapshot = submittedSnapshot;
     showErrors({});
+    if (snapshot() !== submittedSnapshot) {
+      // Saisie modifiée pendant l'écriture (navigateur sans « inert ») : on reste
+      // sur le formulaire, en mode modification, avec les changements non enregistrés.
+      $('form-title').textContent = 'Modifier le contrôle';
+      $('btn-delete').hidden = false;
+      showMessage(`Contrôle « ${saved.titre} » enregistré, mais des modifications faites pendant l’enregistrement ne le sont pas encore : enregistrez à nouveau.`, { error: true });
+      return;
+    }
     showView('list', { replace: true });
     showMessage(wasEdit ? `Contrôle « ${saved.titre} » mis à jour.` : `Contrôle « ${saved.titre} » enregistré sur cet appareil.`);
   } catch (error) {
@@ -152,8 +171,7 @@ async function onSubmit(event) {
       showMessage(`Échec de l’enregistrement local : ${error?.message ?? error}. Vos saisies sont toujours dans le formulaire.`, { error: true });
     }
   } finally {
-    state.busy = false;
-    $('btn-save').disabled = false;
+    setFormBusy(false);
   }
 }
 
