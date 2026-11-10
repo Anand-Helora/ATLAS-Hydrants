@@ -158,8 +158,9 @@ export function createRepository(
     return record;
   }
 
+  /** Supprime un contrôle, sous le même verrou que l'enregistrement. */
   async function remove(id) {
-    await backend.delete(id);
+    await lock(() => backend.delete(id));
   }
 
   return { list, get, save, remove };

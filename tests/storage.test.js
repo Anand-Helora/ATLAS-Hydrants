@@ -331,3 +331,43 @@ for (const op of ['delete', 'put']) {
     await createRepository(base, deps()).save({ ...FICTIF, statut: 'OK' }, 'ls-1'); // reste modifiable
   });
 }
+
+test('suppression concurrente d’une modification : le contrôle supprimé ne réapparaît pas', async () => {
+  const base = createMemoryBackend();
+  const lock = createMutex();
+  const tab1 = createRepository(base, { ...deps(), lock });
+  const saved = await tab1.save(FICTIF);
+
+  // Onglet 1 : lecture lente pendant la modification ; onglet 2 : suppression.
+  let slowReads = 1;
+  const slow = {
+    ...base,
+    getAll: async () => {
+      if (slowReads-- > 0) await new Promise((r) => setTimeout(r, 20));
+      return base.getAll();
+    },
+  };
+  const editing = createRepository(slow, { ...deps(), lock });
+  const deleting = createRepository(base, { ...deps(), lock });
+
+  const update = editing.save({ ...FICTIF, commentaires: 'modifié' }, saved.id);
+  await new Promise((r) => setImmediate(r));
+  const removal = deleting.remove(saved.id);
+
+  const [u] = await Promise.allSettled([update, removal]);
+  // La modification passe avant la suppression (ordre du verrou) ; la suppression gagne ensuite.
+  assert.equal(u.status, 'fulfilled');
+  assert.equal((await tab1.list()).length, 0, 'le contrôle supprimé reste supprimé');
+});
+
+test('modification d’un contrôle supprimé sous verrou : refusée', async () => {
+  const base = createMemoryBackend();
+  const lock = createMutex();
+  const repo = createRepository(base, { ...deps(), lock });
+  const saved = await repo.save(FICTIF);
+  const removal = repo.remove(saved.id);
+  const update = repo.save({ ...FICTIF, commentaires: 'trop tard' }, saved.id);
+  await removal;
+  await assert.rejects(update, /n'existe plus/);
+  assert.equal((await repo.list()).length, 0);
+});
