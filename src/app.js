@@ -24,6 +24,9 @@ const state = {
   savedSnapshot: '',
   scanner: null,
   busy: false,
+  // Incrémenté à chaque ouverture du formulaire : une opération asynchrone
+  // terminée après un changement de formulaire ne doit pas modifier le nouveau.
+  formSession: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -114,6 +117,7 @@ function checkDuplicateLive() {
 function openForm(record) {
   // Un scan en cours ne doit jamais écrire dans le contrôle qu'on ouvre.
   stopScan();
+  state.formSession += 1;
   state.editingId = record?.id ?? null;
   writeForm(record ?? emptyControl());
   showErrors({});
@@ -142,10 +146,16 @@ async function onSubmit(event) {
   // Valeurs réellement soumises : seules celles-ci sont considérées comme enregistrées.
   const submitted = readForm();
   const submittedSnapshot = JSON.stringify(submitted);
+  const session = state.formSession;
   setFormBusy(true);
   try {
     const saved = await state.repo.save(submitted, state.editingId ?? undefined);
     await refreshRecords();
+    if (session !== state.formSession) {
+      // L'utilisateur a quitté ce formulaire pendant l'écriture : ne pas toucher au suivant.
+      showMessage(`Contrôle « ${saved.titre} » enregistré sur cet appareil.`);
+      return;
+    }
     const wasEdit = Boolean(state.editingId);
     state.editingId = saved.id;
     state.savedSnapshot = submittedSnapshot;
@@ -161,6 +171,11 @@ async function onSubmit(event) {
     showView('list', { replace: true });
     showMessage(wasEdit ? `Contrôle « ${saved.titre} » mis à jour.` : `Contrôle « ${saved.titre} » enregistré sur cet appareil.`);
   } catch (error) {
+    if (session !== state.formSession) {
+      console.error(error);
+      showMessage(`Le contrôle précédent n’a pas été enregistré : ${error?.message ?? error}. Ressaisissez-le.`, { error: true });
+      return;
+    }
     if (error instanceof ValidationError) {
       showErrors(error.errors);
       showMessage('Le contrôle n’est pas enregistré : corrigez les champs signalés.', { error: true });
@@ -182,9 +197,11 @@ async function onDelete() {
   const record = state.records.find((r) => r.id === id);
   if (!record) return;
   if (!window.confirm(`Supprimer définitivement le contrôle « ${record.titre} » de cet appareil ?`)) return;
+  const session = state.formSession;
   try {
     await state.repo.remove(id);
     await refreshRecords();
+    if (session !== state.formSession) return;
     state.savedSnapshot = snapshot();
     showView('list', { replace: true });
     showMessage(`Contrôle « ${record.titre} » supprimé.`);
