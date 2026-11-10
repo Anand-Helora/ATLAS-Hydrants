@@ -278,11 +278,12 @@ async function startScan() {
   clearMessage();
   $('scanner').hidden = false;
   $('btn-scan').hidden = true;
-  state.scanner = createQrScanner({
+  const scanner = createQrScanner({
     video: $('scanner-video'),
     BarcodeDetector: window.BarcodeDetector,
     mediaDevices: navigator.mediaDevices,
     onResult(text) {
+      if (state.scanner !== scanner) return;
       hideScanner();
       $('titre').value = normalizeTitre(text);
       $('titre').dispatchEvent(new Event('input', { bubbles: true }));
@@ -290,9 +291,12 @@ async function startScan() {
       $('titre').focus();
     },
   });
+  state.scanner = scanner;
   try {
-    await state.scanner.start();
+    await scanner.start();
   } catch (error) {
+    // Une session remplacée entre-temps ne doit pas modifier l'interface.
+    if (state.scanner !== scanner) return;
     hideScanner();
     showMessage(cameraErrorMessage(error), { error: true });
   }

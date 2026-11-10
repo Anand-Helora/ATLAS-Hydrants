@@ -211,14 +211,51 @@ export async function createIndexedDbBackend(idb, { dbName = DB_NAME, storeName 
 }
 
 /**
+ * Rapatrie dans `target` les contrôles restés dans le stockage de repli
+ * localStorage (cas d'une ouverture précédente où IndexedDB avait échoué).
+ * Les objets déjà présents (même id) ne sont pas écrasés. La clé de repli
+ * n'est effacée qu'après l'écriture réussie de tous les objets : en cas
+ * d'échec, rien n'est perdu et la migration sera retentée au chargement suivant.
+ *
+ * @returns {Promise<number>} nombre de contrôles rapatriés
+ */
+export async function migrateLocalStorageFallback(target, storage, key = LOCAL_STORAGE_KEY) {
+  const text = storage.getItem(key);
+  if (!text) return 0;
+  const fallback = JSON.parse(text);
+  if (!Array.isArray(fallback)) return 0;
+  const existing = new Set((await target.getAll()).map((o) => o?.id));
+  let migrated = 0;
+  for (const raw of fallback) {
+    if (!deserializeRecord(raw) || existing.has(raw.id)) continue;
+    await target.put(raw);
+    migrated += 1;
+  }
+  storage.removeItem(key);
+  return migrated;
+}
+
+/**
  * Choisit le meilleur stockage disponible : IndexedDB, sinon localStorage,
  * sinon mémoire (les données seront alors perdues au rafraîchissement).
+ * Quand IndexedDB est disponible, les contrôles éventuellement enregistrés
+ * dans le repli localStorage lors d'une session précédente y sont rapatriés.
  */
 export async function openBestBackend(win) {
+  let idbBackend = null;
   try {
-    if (win.indexedDB) return await createIndexedDbBackend(win.indexedDB);
+    if (win.indexedDB) idbBackend = await createIndexedDbBackend(win.indexedDB);
   } catch {
     // Navigation privée ou IndexedDB bloqué : on tente le repli.
+  }
+  if (idbBackend) {
+    try {
+      if (win.localStorage) await migrateLocalStorageFallback(idbBackend, win.localStorage);
+    } catch {
+      // Repli inaccessible ou migration interrompue : les données restent
+      // dans localStorage et la migration sera retentée au prochain chargement.
+    }
+    return idbBackend;
   }
   try {
     const storage = win.localStorage;

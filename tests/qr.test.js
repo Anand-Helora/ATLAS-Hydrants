@@ -125,3 +125,41 @@ test('refus de la caméra : erreur propagée, scanner inactif', async () => {
   await assert.rejects(scanner.start(), { name: 'NotAllowedError' });
   assert.equal(scanner.active, false);
 });
+
+test('rejet tardif d’une session arrêtée : la nouvelle session partageant la vidéo est intacte', async () => {
+  const video = fakeVideo();
+  let rejectFirst;
+  const first = createQrScanner({
+    video,
+    BarcodeDetector: FakeDetector,
+    mediaDevices: { getUserMedia: () => new Promise((_, reject) => (rejectFirst = reject)) },
+    onResult: () => {},
+    intervalMs: 1,
+  });
+  const firstStarted = first.start();
+  await new Promise((r) => setImmediate(r));
+  first.stop();
+
+  const stream = fakeStream();
+  const second = createQrScanner({
+    video,
+    BarcodeDetector: FakeDetector,
+    mediaDevices: { getUserMedia: async () => stream },
+    onResult: () => {},
+    intervalMs: 1,
+  });
+  await second.start();
+  assert.equal(video.srcObject, stream);
+
+  rejectFirst(Object.assign(new Error('refus tardif'), { name: 'NotAllowedError' }));
+  await firstStarted; // erreur d'une session annulée : ignorée, pas de rejet
+  assert.equal(video.srcObject, stream, 'la vidéo garde le flux de la nouvelle session');
+  assert.equal(second.active, true);
+  assert.equal(stream.tracks[0].stopped, false);
+
+  first.stop(); // un stop() tardif de l'ancienne session ne touche pas non plus la vidéo
+  assert.equal(video.srcObject, stream);
+  second.stop();
+  assert.equal(stream.tracks[0].stopped, true);
+  assert.equal(video.srcObject, null);
+});

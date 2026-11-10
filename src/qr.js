@@ -103,7 +103,12 @@ export function createQrScanner({ video, BarcodeDetector, mediaDevices, onResult
       await video.play();
       tick(detector);
     } catch (error) {
+      // Session déjà arrêtée (stop() pendant la demande caméra) : l'erreur
+      // tardive ne la concerne plus et ne doit pas toucher une session plus
+      // récente qui partagerait le même élément vidéo.
+      const cancelled = !running;
       stop();
+      if (cancelled) return;
       throw error;
     }
   }
@@ -119,8 +124,10 @@ export function createQrScanner({ video, BarcodeDetector, mediaDevices, onResult
     running = false;
     if (timer) clearTimeout(timer);
     timer = null;
+    const own = stream;
     releaseStream();
-    if (video) {
+    // Ne détacher la vidéo que si elle affiche le flux de CETTE session.
+    if (video && own && video.srcObject === own) {
       try {
         video.pause();
       } catch {

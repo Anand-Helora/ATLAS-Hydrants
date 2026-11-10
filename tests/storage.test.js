@@ -10,6 +10,7 @@ import {
   createMemoryBackend,
   createRepository,
   deserializeRecord,
+  migrateLocalStorageFallback,
   openBestBackend,
   serializeRecord,
 } from '../src/storage.js';
@@ -185,4 +186,35 @@ test('choix du stockage : repli localStorage puis mémoire', async () => {
     },
   };
   assert.equal((await openBestBackend({ localStorage: throwingStorage })).kind, 'memory');
+});
+
+test('repli localStorage rapatrié dans le stockage principal (IndexedDB revenu)', async () => {
+  const storage = fakeStorage();
+  // Session 1 : IndexedDB indisponible, enregistrement dans le repli.
+  const fallbackRepo = createRepository(createLocalStorageBackend(storage), deps());
+  const a = await fallbackRepo.save(FICTIF);
+  const b = await fallbackRepo.save({ ...FICTIF, titre: 'SITE-FICTIF/A/00/002/HYD02' });
+
+  // Session 2 : IndexedDB fonctionne (simulé par un backend mémoire) et contient déjà `a`.
+  const primary = createMemoryBackend([serializeRecord({ ...a, commentaires: 'version principale' })]);
+  assert.equal(await migrateLocalStorageFallback(primary, storage), 1);
+  const list = await createRepository(primary, deps()).list();
+  assert.deepEqual(list.map((r) => r.id).sort(), [a.id, b.id].sort());
+  assert.equal(list.find((r) => r.id === a.id).commentaires, 'version principale', 'pas d’écrasement');
+  assert.equal(storage.getItem(LOCAL_STORAGE_KEY), null, 'repli vidé après succès');
+  assert.equal(await migrateLocalStorageFallback(primary, storage), 0);
+});
+
+test('migration interrompue : le repli est conservé pour une nouvelle tentative', async () => {
+  const storage = fakeStorage();
+  await createRepository(createLocalStorageBackend(storage), deps()).save(FICTIF);
+  const failing = {
+    getAll: async () => [],
+    put: async () => {
+      throw new Error('écriture impossible (simulée)');
+    },
+    delete: async () => {},
+  };
+  await assert.rejects(migrateLocalStorageFallback(failing, storage), /simulée/);
+  assert.ok(storage.getItem(LOCAL_STORAGE_KEY), 'données de repli toujours présentes');
 });

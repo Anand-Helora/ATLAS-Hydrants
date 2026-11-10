@@ -62,7 +62,7 @@ npm test
 
 ## Périmètre de la sauvegarde
 
-- Les contrôles sont stockés **uniquement dans le navigateur de l'appareil** : IndexedDB (privilégié), sinon `localStorage`. Si aucun stockage persistant n'est disponible (certaines navigations privées), un bandeau rouge prévient que les données seront perdues au rafraîchissement.
+- Les contrôles sont stockés **uniquement dans le navigateur de l'appareil** : IndexedDB (privilégié), sinon `localStorage`. Si aucun stockage persistant n'est disponible (certaines navigations privées), un bandeau rouge prévient que les données seront perdues au rafraîchissement. Si des contrôles ont été enregistrés dans le repli `localStorage` alors qu'IndexedDB était momentanément indisponible, ils sont rapatriés automatiquement dans IndexedDB au chargement suivant (sans écraser les contrôles existants).
 - Les données restent après un rafraîchissement ou un redémarrage, **sur le même appareil et le même navigateur**. Elles ne sont **pas** partagées entre appareils, ni sauvegardées ailleurs.
 - **Pas de synchronisation SharePoint**, pas d'API Graph, pas de Power Automate, aucun envoi réseau (la page interdit même toute connexion sortante via sa politique de sécurité de contenu).
 - Effacer les données du site dans le navigateur supprime les contrôles. **Exporter le CSV régulièrement.**
