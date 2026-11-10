@@ -73,6 +73,33 @@ export function deserializeRecord(raw) {
   };
 }
 
+export const SAVE_LOCK_NAME = 'atlas-hydrants:save';
+
+/**
+ * Verrou en mémoire : exécute les fonctions une par une, dans l'ordre
+ * d'appel. Protège les enregistrements concurrents au sein d'un même onglet.
+ */
+export function createMutex() {
+  let tail = Promise.resolve();
+  return function withLock(fn) {
+    const run = tail.then(fn, fn);
+    tail = run.catch(() => {});
+    return run;
+  };
+}
+
+/**
+ * Verrou partagé entre les onglets de la même origine (Web Locks API),
+ * avec repli sur un verrou en mémoire si l'API est absente.
+ */
+export function createWebLock(nav, name = SAVE_LOCK_NAME) {
+  const locks = nav?.locks;
+  if (locks && typeof locks.request === 'function') {
+    return (fn) => locks.request(name, { mode: 'exclusive' }, fn);
+  }
+  return createMutex();
+}
+
 /** Ordre d'affichage et d'export : ordre de création. */
 function byCreation(a, b) {
   if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
@@ -85,7 +112,10 @@ function byCreation(a, b) {
  * @param {{ getAll: Function, put: Function, delete: Function }} backend
  * @param {{ now?: () => Date, newId?: () => string }} [deps]
  */
-export function createRepository(backend, { now = () => new Date(), newId = () => createId() } = {}) {
+export function createRepository(
+  backend,
+  { now = () => new Date(), newId = () => createId(), lock = createMutex() } = {},
+) {
   async function list() {
     const raws = await backend.getAll();
     return raws.map(deserializeRecord).filter(Boolean).sort(byCreation);
@@ -98,11 +128,18 @@ export function createRepository(backend, { now = () => new Date(), newId = () =
   /**
    * Crée (sans `id`) ou met à jour (avec `id`) un contrôle.
    * Lève ValidationError ou DuplicateTitreError.
+   *
+   * La vérification du doublon et l'écriture s'exécutent sous un même verrou
+   * (partagé entre onglets via `createWebLock`) : deux enregistrements
+   * simultanés du même identifiant ne peuvent pas passer tous les deux.
    */
   async function save(input, id) {
     const { valid, errors, value } = validateControl(input);
     if (!valid) throw new ValidationError(errors);
+    return lock(() => checkAndWrite(value, id));
+  }
 
+  async function checkAndWrite(value, id) {
     const records = await list();
     const duplicate = findDuplicate(records, value.titre, id);
     if (duplicate) throw new DuplicateTitreError(duplicate);

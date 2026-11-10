@@ -8,6 +8,8 @@ import {
   ValidationError,
   createLocalStorageBackend,
   createMemoryBackend,
+  createMutex,
+  createWebLock,
   createRepository,
   deserializeRecord,
   migrateLocalStorageFallback,
@@ -217,4 +219,38 @@ test('migration interrompue : le repli est conservé pour une nouvelle tentative
   };
   await assert.rejects(migrateLocalStorageFallback(failing, storage), /simulée/);
   assert.ok(storage.getItem(LOCAL_STORAGE_KEY), 'données de repli toujours présentes');
+});
+
+test('enregistrements simultanés du même identifiant : un seul passe (verrou partagé)', async () => {
+  const backend = createMemoryBackend();
+  const lock = createMutex();
+  // Deux dépôts (comme deux onglets) sur le même stockage et le même verrou.
+  const repo1 = createRepository(backend, { ...deps(), lock });
+  const repo2 = createRepository(backend, { ...deps(), lock, newId: () => 'autre-id' });
+  const results = await Promise.allSettled([repo1.save(FICTIF), repo2.save({ ...FICTIF, titre: ' site-fictif/a/00/001/hyd01 ' })]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.ok(results.find((r) => r.status === 'rejected').reason instanceof DuplicateTitreError);
+  assert.equal((await backend.getAll()).length, 1);
+});
+
+test('verrou par défaut : appels concurrents sur un même dépôt sérialisés', async () => {
+  const repo = createRepository(createMemoryBackend(), deps());
+  const results = await Promise.allSettled([repo.save(FICTIF), repo.save(FICTIF)]);
+  assert.deepEqual(results.map((r) => r.status).sort(), ['fulfilled', 'rejected']);
+});
+
+test('le verrou se libère après une erreur', async () => {
+  const lock = createMutex();
+  await assert.rejects(lock(async () => {
+    throw new Error('échec');
+  }));
+  assert.equal(await lock(async () => 'ok'), 'ok');
+});
+
+test('verrou Web Locks utilisé quand navigator.locks existe', async () => {
+  const calls = [];
+  const nav = { locks: { request: (name, opts, fn) => (calls.push([name, opts.mode]), fn()) } };
+  assert.equal(await createWebLock(nav)(async () => 42), 42);
+  assert.deepEqual(calls, [['atlas-hydrants:save', 'exclusive']]);
+  assert.equal(await createWebLock({})(async () => 'repli'), 'repli');
 });

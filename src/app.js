@@ -5,7 +5,7 @@
 
 import { emptyControl, findDuplicate, normalizeTitre } from './model.js';
 import { CSV_HEADERS, buildCsv, exportFileName, formatDateCsv, recordToRow } from './csv.js';
-import { DuplicateTitreError, ValidationError, createRepository, openBestBackend } from './storage.js';
+import { DuplicateTitreError, ValidationError, createRepository, createWebLock, openBestBackend } from './storage.js';
 import { cameraErrorMessage, createQrScanner, isQrScanSupported } from './qr.js';
 
 const $ = (id) => document.getElementById(id);
@@ -112,6 +112,8 @@ function checkDuplicateLive() {
 }
 
 function openForm(record) {
+  // Un scan en cours ne doit jamais écrire dans le contrôle qu'on ouvre.
+  stopScan();
   state.editingId = record?.id ?? null;
   writeForm(record ?? emptyControl());
   showErrors({});
@@ -427,7 +429,7 @@ async function init() {
 
   try {
     const backend = await openBestBackend(window);
-    state.repo = createRepository(backend);
+    state.repo = createRepository(backend, { lock: createWebLock(navigator) });
     $('storage-detail').textContent = STORAGE_LABELS[backend.kind];
     $('storage-banner').classList.toggle('is-critical', backend.kind === 'memory');
     await refreshRecords();
