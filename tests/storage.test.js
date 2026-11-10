@@ -200,7 +200,10 @@ test('repli localStorage rapatrié dans le stockage principal (IndexedDB revenu)
 
   // Session 2 : IndexedDB fonctionne (simulé par un backend mémoire) et contient déjà `a`.
   const primary = createMemoryBackend([serializeRecord({ ...a, commentaires: 'version principale' })]);
-  assert.deepEqual(await migrateLocalStorageFallback(primary, storage), { migrated: 1, conflicts: [] });
+  // `a` existe des deux côtés avec des contenus différents (même date) : la version
+  // principale est gardée, celle du repli est sauvegardée et signalée.
+  assert.deepEqual(await migrateLocalStorageFallback(primary, storage), { migrated: 1, conflicts: [a.titre] });
+  assert.deepEqual(JSON.parse(storage.getItem(MIGRATION_BACKUP_KEY)).map((o) => [o.id, o.commentaires]), [[a.id, 'Observation fictive']]);
   const list = await createRepository(primary, deps()).list();
   assert.deepEqual(list.map((r) => r.id).sort(), [a.id, b.id].sort());
   assert.equal(list.find((r) => r.id === a.id).commentaires, 'version principale', 'pas d’écrasement');
@@ -370,4 +373,40 @@ test('modification d’un contrôle supprimé sous verrou : refusée', async () 
   await removal;
   await assert.rejects(update, /n'existe plus/);
   assert.equal((await repo.list()).length, 0);
+});
+
+test('migration partielle puis modification dans le repli : la version modifiée n’est pas perdue', async () => {
+  const storage = fakeStorage();
+  const fallbackRepo = createRepository(createLocalStorageBackend(storage), deps());
+  const a = await fallbackRepo.save(FICTIF);
+  await fallbackRepo.save({ ...FICTIF, titre: 'SITE-FICTIF/A/00/002/HYD02' });
+
+  // 1re migration : la 2e écriture échoue, la clé de repli est conservée.
+  const base = createMemoryBackend();
+  let puts = 0;
+  const flaky = { ...base, put: async (o) => (++puts === 2 ? Promise.reject(new Error('interruption simulée')) : base.put(o)) };
+  await assert.rejects(migrateLocalStorageFallback(flaky, storage), /interruption/);
+
+  // Un onglet encore sur le repli modifie le contrôle déjà importé.
+  const later = createRepository(createLocalStorageBackend(storage), {
+    now: () => new Date(Date.UTC(2026, 10, 4, 12)),
+    newId: () => 'inutile',
+  });
+  await later.save({ ...FICTIF, commentaires: 'modifié après import' }, a.id);
+
+  await migrateLocalStorageFallback(base, storage);
+  const list = await createRepository(base, deps()).list();
+  assert.equal(list.length, 2);
+  assert.equal(list.find((r) => r.id === a.id).commentaires, 'modifié après import');
+  const backup = JSON.parse(storage.getItem(MIGRATION_BACKUP_KEY));
+  assert.deepEqual(backup.map((o) => [o.id, o.commentaires]), [[a.id, 'Observation fictive']]);
+});
+
+test('migration : version identique déjà importée ignorée sans sauvegarde', async () => {
+  const storage = fakeStorage();
+  const same = rec('x-1', 'SITE-FICTIF/A/00/001/HYD01', '2026-11-04T08:00:00.000Z', 'identique');
+  storage.setItem(LOCAL_STORAGE_KEY, JSON.stringify([same]));
+  const base = createMemoryBackend([same]);
+  assert.deepEqual(await migrateLocalStorageFallback(base, storage), { migrated: 0, conflicts: [] });
+  assert.equal(storage.getItem(MIGRATION_BACKUP_KEY), null);
 });

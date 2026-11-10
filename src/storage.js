@@ -250,18 +250,24 @@ export async function createIndexedDbBackend(idb, { dbName = DB_NAME, storeName 
 
 export const MIGRATION_BACKUP_KEY = 'atlas-hydrants:versions-remplacees:v1';
 
+/** Deux versions d'un contrôle sont-elles identiques champ pour champ ? */
+function sameRecord(a, b) {
+  return JSON.stringify(serializeRecord(a)) === JSON.stringify(serializeRecord(b));
+}
+
 /**
  * Rapatrie dans `target` les contrôles restés dans le stockage de repli
  * localStorage (cas d'une ouverture précédente où IndexedDB avait échoué).
  *
- * - Même id déjà présent : rien n'est écrasé.
+ * - Même id déjà présent : ignoré si identique ; sinon, comme pour un conflit,
+ *   la version la plus récente est retenue et l'autre est sauvegardée.
  * - Même identifiant d'hydrant (titre normalisé) sous un autre id : la
  *   version modifiée le plus récemment est conservée dans la liste ; l'autre
  *   n'est pas perdue, elle est sauvegardée telle quelle sous la clé
  *   MIGRATION_BACKUP_KEY de ce navigateur, et signalée dans le rapport.
  * - Ordre des étapes, choisi pour qu'une interruption à n'importe quel moment
  *   laisse un état que la tentative suivante termine correctement :
- *   1. sauvegarde des versions écartées (dédoublonnée par id) ;
+ *   1. sauvegarde des versions écartées (dédoublonnée par id et date) ;
  *   2. suppression des versions remplacées dans `target` ;
  *   3. écriture des versions retenues ;
  *   4. effacement de la clé de repli, seulement après succès.
@@ -280,15 +286,19 @@ export async function migrateLocalStorageFallback(target, storage, key = LOCAL_S
   if (!Array.isArray(fallback)) return report;
 
   const current = (await target.getAll()).map(deserializeRecord).filter(Boolean);
-  const ids = new Set(current.map((r) => r.id));
   const superseded = [];
   const puts = [];
   const deletes = [];
 
   for (const raw of fallback) {
     const incoming = deserializeRecord(raw);
-    if (!incoming || ids.has(incoming.id)) continue;
-    const clash = findDuplicate(current, incoming.titre);
+    if (!incoming) continue;
+    // Règle : une version du repli n'est jamais jetée, sauf si une copie
+    // identique existe déjà. Même id ou même identifiant d'hydrant : la plus
+    // récente est retenue, l'autre est sauvegardée.
+    const sameId = current.find((r) => r.id === incoming.id);
+    if (sameId && sameRecord(sameId, incoming)) continue;
+    const clash = sameId ?? findDuplicate(current, incoming.titre);
     if (clash && incoming.updatedAt <= clash.updatedAt) {
       // La version déjà présente est la plus récente : on garde l'autre en sauvegarde.
       superseded.push(serializeRecord(incoming));
@@ -298,20 +308,21 @@ export async function migrateLocalStorageFallback(target, storage, key = LOCAL_S
     if (clash) {
       // La version du repli est la plus récente : elle remplace l'autre, sauvegardée.
       superseded.push(serializeRecord(clash));
-      deletes.push(clash.id);
+      if (clash.id !== incoming.id) deletes.push(clash.id);
       current.splice(current.indexOf(clash), 1);
       report.conflicts.push(incoming.titre);
     }
     puts.push(serializeRecord(incoming));
     current.push(incoming);
-    ids.add(incoming.id);
   }
 
   if (superseded.length) {
     const parsed = JSON.parse(storage.getItem(MIGRATION_BACKUP_KEY) || '[]');
     const previous = Array.isArray(parsed) ? parsed : [];
-    const known = new Set(previous.map((o) => o?.id));
-    const additions = superseded.filter((o) => !known.has(o.id));
+    // Dédoublonnage par version (id + date de modification) en cas de reprise.
+    const versionKey = (o) => `${o?.id}@${o?.updatedAt}`;
+    const known = new Set(previous.map(versionKey));
+    const additions = superseded.filter((o) => !known.has(versionKey(o)));
     if (additions.length) storage.setItem(MIGRATION_BACKUP_KEY, JSON.stringify([...previous, ...additions]));
   }
   for (const id of deletes) await target.delete(id);
