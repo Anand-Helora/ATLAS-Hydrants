@@ -294,3 +294,40 @@ test('migration : version du repli plus ancienne, conservée en sauvegarde seule
   const repo = createRepository(primary, deps());
   await repo.save({ ...FICTIF, statut: 'OK' }, 'idb-1');
 });
+
+/** Backend mémoire dont une opération échoue une fois (interruption simulée). */
+function failingOnce(backend, op) {
+  let failed = false;
+  return {
+    ...backend,
+    [op]: async (arg) => {
+      if (!failed) {
+        failed = true;
+        throw new Error(`interruption simulée (${op})`);
+      }
+      return backend[op](arg);
+    },
+  };
+}
+
+for (const op of ['delete', 'put']) {
+  test(`migration interrompue (échec de ${op}) puis reprise : aucun doublon, aucune perte`, async () => {
+    const storage = fakeStorage();
+    const older = rec('idb-1', 'SITE-FICTIF/A/00/001/HYD01', '2026-11-04T08:00:00.000Z', 'ancienne (IndexedDB)');
+    const newer = rec('ls-1', 'SITE-FICTIF/A/00/001/HYD01', '2026-11-04T09:00:00.000Z', 'récente (repli)');
+    const other = rec('ls-2', 'SITE-FICTIF/A/00/002/HYD02', '2026-11-04T08:30:00.000Z', 'sans conflit');
+    storage.setItem(LOCAL_STORAGE_KEY, JSON.stringify([newer, other]));
+    const base = createMemoryBackend([older]);
+
+    await assert.rejects(migrateLocalStorageFallback(failingOnce(base, op), storage), /interruption/);
+    assert.ok(storage.getItem(LOCAL_STORAGE_KEY), 'repli conservé après interruption');
+
+    await migrateLocalStorageFallback(base, storage); // chargement suivant
+    const list = await createRepository(base, deps()).list();
+    assert.deepEqual(list.map((r) => r.commentaires).sort(), ['récente (repli)', 'sans conflit']);
+    const backup = JSON.parse(storage.getItem(MIGRATION_BACKUP_KEY));
+    assert.deepEqual(backup.map((o) => o.id), ['idb-1'], 'sauvegarde unique, non dupliquée');
+    assert.equal(storage.getItem(LOCAL_STORAGE_KEY), null);
+    await createRepository(base, deps()).save({ ...FICTIF, statut: 'OK' }, 'ls-1'); // reste modifiable
+  });
+}

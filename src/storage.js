@@ -258,9 +258,15 @@ export const MIGRATION_BACKUP_KEY = 'atlas-hydrants:versions-remplacees:v1';
  *   version modifiée le plus récemment est conservée dans la liste ; l'autre
  *   n'est pas perdue, elle est sauvegardée telle quelle sous la clé
  *   MIGRATION_BACKUP_KEY de ce navigateur, et signalée dans le rapport.
- * - La sauvegarde est écrite avant toute écriture dans `target`, et la clé de
- *   repli n'est effacée qu'après succès : en cas d'échec, rien n'est perdu et
- *   la migration sera retentée au chargement suivant.
+ * - Ordre des étapes, choisi pour qu'une interruption à n'importe quel moment
+ *   laisse un état que la tentative suivante termine correctement :
+ *   1. sauvegarde des versions écartées (dédoublonnée par id) ;
+ *   2. suppression des versions remplacées dans `target` ;
+ *   3. écriture des versions retenues ;
+ *   4. effacement de la clé de repli, seulement après succès.
+ *   Après une interruption entre 2 et 3, la version écartée est déjà
+ *   sauvegardée et la version retenue est toujours dans le repli : elle sera
+ *   écrite au chargement suivant, sans conflit résiduel.
  *
  * @returns {Promise<{ migrated: number, conflicts: string[] }>}
  *          nombre de contrôles rapatriés et identifiants en conflit résolus
@@ -301,11 +307,14 @@ export async function migrateLocalStorageFallback(target, storage, key = LOCAL_S
   }
 
   if (superseded.length) {
-    const previous = JSON.parse(storage.getItem(MIGRATION_BACKUP_KEY) || '[]');
-    storage.setItem(MIGRATION_BACKUP_KEY, JSON.stringify([...(Array.isArray(previous) ? previous : []), ...superseded]));
+    const parsed = JSON.parse(storage.getItem(MIGRATION_BACKUP_KEY) || '[]');
+    const previous = Array.isArray(parsed) ? parsed : [];
+    const known = new Set(previous.map((o) => o?.id));
+    const additions = superseded.filter((o) => !known.has(o.id));
+    if (additions.length) storage.setItem(MIGRATION_BACKUP_KEY, JSON.stringify([...previous, ...additions]));
   }
-  for (const obj of puts) await target.put(obj);
   for (const id of deletes) await target.delete(id);
+  for (const obj of puts) await target.put(obj);
   storage.removeItem(key);
   report.migrated = puts.length;
   return report;
