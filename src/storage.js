@@ -247,29 +247,68 @@ export async function createIndexedDbBackend(idb, { dbName = DB_NAME, storeName 
   };
 }
 
+export const MIGRATION_BACKUP_KEY = 'atlas-hydrants:versions-remplacees:v1';
+
 /**
  * Rapatrie dans `target` les contrôles restés dans le stockage de repli
  * localStorage (cas d'une ouverture précédente où IndexedDB avait échoué).
- * Les objets déjà présents (même id) ne sont pas écrasés. La clé de repli
- * n'est effacée qu'après l'écriture réussie de tous les objets : en cas
- * d'échec, rien n'est perdu et la migration sera retentée au chargement suivant.
  *
- * @returns {Promise<number>} nombre de contrôles rapatriés
+ * - Même id déjà présent : rien n'est écrasé.
+ * - Même identifiant d'hydrant (titre normalisé) sous un autre id : la
+ *   version modifiée le plus récemment est conservée dans la liste ; l'autre
+ *   n'est pas perdue, elle est sauvegardée telle quelle sous la clé
+ *   MIGRATION_BACKUP_KEY de ce navigateur, et signalée dans le rapport.
+ * - La sauvegarde est écrite avant toute écriture dans `target`, et la clé de
+ *   repli n'est effacée qu'après succès : en cas d'échec, rien n'est perdu et
+ *   la migration sera retentée au chargement suivant.
+ *
+ * @returns {Promise<{ migrated: number, conflicts: string[] }>}
+ *          nombre de contrôles rapatriés et identifiants en conflit résolus
  */
 export async function migrateLocalStorageFallback(target, storage, key = LOCAL_STORAGE_KEY) {
+  const report = { migrated: 0, conflicts: [] };
   const text = storage.getItem(key);
-  if (!text) return 0;
+  if (!text) return report;
   const fallback = JSON.parse(text);
-  if (!Array.isArray(fallback)) return 0;
-  const existing = new Set((await target.getAll()).map((o) => o?.id));
-  let migrated = 0;
+  if (!Array.isArray(fallback)) return report;
+
+  const current = (await target.getAll()).map(deserializeRecord).filter(Boolean);
+  const ids = new Set(current.map((r) => r.id));
+  const superseded = [];
+  const puts = [];
+  const deletes = [];
+
   for (const raw of fallback) {
-    if (!deserializeRecord(raw) || existing.has(raw.id)) continue;
-    await target.put(raw);
-    migrated += 1;
+    const incoming = deserializeRecord(raw);
+    if (!incoming || ids.has(incoming.id)) continue;
+    const clash = findDuplicate(current, incoming.titre);
+    if (clash && incoming.updatedAt <= clash.updatedAt) {
+      // La version déjà présente est la plus récente : on garde l'autre en sauvegarde.
+      superseded.push(serializeRecord(incoming));
+      report.conflicts.push(clash.titre);
+      continue;
+    }
+    if (clash) {
+      // La version du repli est la plus récente : elle remplace l'autre, sauvegardée.
+      superseded.push(serializeRecord(clash));
+      deletes.push(clash.id);
+      current.splice(current.indexOf(clash), 1);
+      report.conflicts.push(incoming.titre);
+    }
+    puts.push(serializeRecord(incoming));
+    current.push(incoming);
+    ids.add(incoming.id);
   }
+
+  if (superseded.length) {
+    const previous = JSON.parse(storage.getItem(MIGRATION_BACKUP_KEY) || '[]');
+    storage.setItem(MIGRATION_BACKUP_KEY, JSON.stringify([...(Array.isArray(previous) ? previous : []), ...superseded]));
+  }
+  for (const obj of puts) await target.put(obj);
+  for (const id of deletes) await target.delete(id);
   storage.removeItem(key);
-  return migrated;
+  report.migrated = puts.length;
+  return report;
 }
 
 /**
@@ -278,7 +317,7 @@ export async function migrateLocalStorageFallback(target, storage, key = LOCAL_S
  * Quand IndexedDB est disponible, les contrôles éventuellement enregistrés
  * dans le repli localStorage lors d'une session précédente y sont rapatriés.
  */
-export async function openBestBackend(win) {
+export async function openBestBackend(win, { lock = (fn) => fn() } = {}) {
   let idbBackend = null;
   try {
     if (win.indexedDB) idbBackend = await createIndexedDbBackend(win.indexedDB);
@@ -287,7 +326,9 @@ export async function openBestBackend(win) {
   }
   if (idbBackend) {
     try {
-      if (win.localStorage) await migrateLocalStorageFallback(idbBackend, win.localStorage);
+      if (win.localStorage) {
+        idbBackend.migration = await lock(() => migrateLocalStorageFallback(idbBackend, win.localStorage));
+      }
     } catch {
       // Repli inaccessible ou migration interrompue : les données restent
       // dans localStorage et la migration sera retentée au prochain chargement.

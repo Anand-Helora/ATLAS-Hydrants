@@ -13,6 +13,7 @@ import {
   createRepository,
   deserializeRecord,
   migrateLocalStorageFallback,
+  MIGRATION_BACKUP_KEY,
   openBestBackend,
   serializeRecord,
 } from '../src/storage.js';
@@ -199,12 +200,12 @@ test('repli localStorage rapatrié dans le stockage principal (IndexedDB revenu)
 
   // Session 2 : IndexedDB fonctionne (simulé par un backend mémoire) et contient déjà `a`.
   const primary = createMemoryBackend([serializeRecord({ ...a, commentaires: 'version principale' })]);
-  assert.equal(await migrateLocalStorageFallback(primary, storage), 1);
+  assert.deepEqual(await migrateLocalStorageFallback(primary, storage), { migrated: 1, conflicts: [] });
   const list = await createRepository(primary, deps()).list();
   assert.deepEqual(list.map((r) => r.id).sort(), [a.id, b.id].sort());
   assert.equal(list.find((r) => r.id === a.id).commentaires, 'version principale', 'pas d’écrasement');
   assert.equal(storage.getItem(LOCAL_STORAGE_KEY), null, 'repli vidé après succès');
-  assert.equal(await migrateLocalStorageFallback(primary, storage), 0);
+  assert.deepEqual(await migrateLocalStorageFallback(primary, storage), { migrated: 0, conflicts: [] });
 });
 
 test('migration interrompue : le repli est conservé pour une nouvelle tentative', async () => {
@@ -253,4 +254,43 @@ test('verrou Web Locks utilisé quand navigator.locks existe', async () => {
   assert.equal(await createWebLock(nav)(async () => 42), 42);
   assert.deepEqual(calls, [['atlas-hydrants:save', 'exclusive']]);
   assert.equal(await createWebLock({})(async () => 'repli'), 'repli');
+});
+
+function rec(id, titre, updatedAt, commentaires) {
+  return serializeRecord({ ...FICTIF, id, titre, commentaires, createdAt: updatedAt, updatedAt });
+}
+
+test('migration : même hydrant sous un autre id, la version la plus récente gagne, l’autre est sauvegardée', async () => {
+  const storage = fakeStorage();
+  const older = rec('idb-1', 'SITE-FICTIF/A/00/001/HYD01', '2026-11-04T08:00:00.000Z', 'ancienne (IndexedDB)');
+  const newer = rec('ls-1', ' site-fictif/a/00/001/hyd01 ', '2026-11-04T09:00:00.000Z', 'récente (repli)');
+  storage.setItem(LOCAL_STORAGE_KEY, JSON.stringify([newer]));
+  const primary = createMemoryBackend([older]);
+
+  const report = await migrateLocalStorageFallback(primary, storage);
+  assert.equal(report.migrated, 1);
+  assert.equal(report.conflicts.length, 1);
+  const list = await createRepository(primary, deps()).list();
+  assert.equal(list.length, 1, 'aucun doublon dans la liste');
+  assert.equal(list[0].commentaires, 'récente (repli)');
+  assert.deepEqual(JSON.parse(storage.getItem(MIGRATION_BACKUP_KEY)).map((o) => o.commentaires), ['ancienne (IndexedDB)']);
+  assert.equal(storage.getItem(LOCAL_STORAGE_KEY), null);
+});
+
+test('migration : version du repli plus ancienne, conservée en sauvegarde seulement', async () => {
+  const storage = fakeStorage();
+  const newer = rec('idb-1', 'SITE-FICTIF/A/00/001/HYD01', '2026-11-04T09:00:00.000Z', 'récente (IndexedDB)');
+  const older = rec('ls-1', 'SITE-FICTIF/A/00/001/HYD01', '2026-11-04T08:00:00.000Z', 'ancienne (repli)');
+  const other = rec('ls-2', 'SITE-FICTIF/A/00/002/HYD02', '2026-11-04T08:30:00.000Z', 'sans conflit');
+  storage.setItem(LOCAL_STORAGE_KEY, JSON.stringify([older, other]));
+  const primary = createMemoryBackend([newer]);
+
+  const report = await migrateLocalStorageFallback(primary, storage);
+  assert.deepEqual(report, { migrated: 1, conflicts: ['SITE-FICTIF/A/00/001/HYD01'] });
+  const list = await createRepository(primary, deps()).list();
+  assert.deepEqual(list.map((r) => r.commentaires).sort(), ['récente (IndexedDB)', 'sans conflit']);
+  assert.deepEqual(JSON.parse(storage.getItem(MIGRATION_BACKUP_KEY)).map((o) => o.id), ['ls-1']);
+  // Après migration, le contrôle conservé reste modifiable (pas de doublon bloquant).
+  const repo = createRepository(primary, deps());
+  await repo.save({ ...FICTIF, statut: 'OK' }, 'idb-1');
 });

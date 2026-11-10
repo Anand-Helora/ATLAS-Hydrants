@@ -257,8 +257,29 @@ function renderExport() {
   $('preview-raw').textContent = buildCsv(state.records, { bom: false });
 }
 
-function downloadCsv() {
+/** Relit les contrôles (retour au premier plan) et met à jour la vue affichée. */
+function showExportOrList() {
+  if (state.view === 'export') showExport();
+  else refreshRecords().catch((error) => console.error(error));
+}
+
+/** Affiche l'aperçu tout de suite, puis le met à jour après relecture du stockage. */
+async function showExport() {
+  renderExport();
   try {
+    await refreshRecords();
+    renderExport();
+  } catch (error) {
+    console.error(error);
+    showMessage(`Impossible de relire les contrôles enregistrés : ${error?.message ?? error}`, { error: true });
+  }
+}
+
+async function downloadCsv() {
+  try {
+    // Relire le stockage : un autre onglet a pu modifier les contrôles.
+    await refreshRecords();
+    renderExport();
     const content = buildCsv(state.records, { bom: $('opt-bom').checked });
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -339,7 +360,7 @@ function showView(view, { replace = false } = {}) {
   if (view !== 'form') stopScan();
   state.view = view;
   for (const name of ['list', 'form', 'export']) $(`view-${name}`).hidden = name !== view;
-  if (view === 'export') renderExport();
+  if (view === 'export') showExport();
   const entry = { view };
   if (replace || view === 'list') history.replaceState(entry, '');
   else history.pushState(entry, '');
@@ -371,7 +392,7 @@ function onPopState(event) {
   stopScan();
   state.view = target;
   for (const name of ['list', 'form', 'export']) $(`view-${name}`).hidden = name !== target;
-  if (target === 'export') renderExport();
+  if (target === 'export') showExport();
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +442,8 @@ async function init() {
   // Couper la caméra dès que la page est masquée ou quittée.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) stopScan();
+    // Retour au premier plan : relire les contrôles (autre onglet, autre fenêtre).
+    else if (state.repo && state.view !== 'form') showExportOrList();
   });
   window.addEventListener('pagehide', stopScan);
 
@@ -428,11 +451,20 @@ async function init() {
   setupScan();
 
   try {
-    const backend = await openBestBackend(window);
-    state.repo = createRepository(backend, { lock: createWebLock(navigator) });
+    const lock = createWebLock(navigator);
+    const backend = await openBestBackend(window, { lock });
+    state.repo = createRepository(backend, { lock });
     $('storage-detail').textContent = STORAGE_LABELS[backend.kind];
     $('storage-banner').classList.toggle('is-critical', backend.kind === 'memory');
     await refreshRecords();
+    const conflicts = backend.migration?.conflicts ?? [];
+    if (conflicts.length) {
+      showMessage(
+        `Contrôles rapatriés du stockage de secours. Identifiant(s) saisi(s) deux fois : ${conflicts.join(', ')}. ` +
+          'La version modifiée le plus récemment est conservée ; l’autre reste sauvegardée sur cet appareil (voir README).',
+        { error: true },
+      );
+    }
   } catch (error) {
     console.error(error);
     $('storage-detail').textContent = 'Erreur : le stockage local ne peut pas être lu.';
