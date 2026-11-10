@@ -1,0 +1,27 @@
+# Dépendances
+node_modules/
+
+# Caches et journaux
+.cache/
+.npm/
+*.log
+npm-debug.log*
+.eslintcache
+
+# Artefacts de build, de tests et de couverture
+dist/
+build/
+coverage/
+test-results/
+playwright-report/
+
+# Fichiers d'environnement (ne jamais committer de secrets)
+.env
+.env.*
+!.env.example
+
+# Fichiers système / éditeurs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

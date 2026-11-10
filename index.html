@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>ATLAS-Hydrants — contrôles</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="src/app.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>ATLAS-Hydrants</h1>
+      <p class="subtitle">Relevé des contrôles d'hydrants</p>
+    </header>
+
+    <div class="banner" id="storage-banner" role="note">
+      <strong>Données stockées sur cet appareil, pas de synchronisation SharePoint.</strong>
+      <span id="storage-detail">Chargement du stockage local…</span>
+    </div>
+
+    <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+
+    <main>
+      <!-- Liste des contrôles -->
+      <section id="view-list" class="view" aria-labelledby="list-title">
+        <div class="toolbar">
+          <button type="button" class="btn btn-primary" id="btn-new">+ Nouveau contrôle</button>
+          <button type="button" class="btn" id="btn-export">Prévisualiser et exporter le CSV</button>
+        </div>
+        <h2 id="list-title">Contrôles enregistrés <span id="count" class="count">(0)</span></h2>
+        <p id="list-empty" class="empty">Aucun contrôle enregistré sur cet appareil.</p>
+        <ul id="list" class="record-list"></ul>
+      </section>
+
+      <!-- Formulaire de saisie / modification -->
+      <section id="view-form" class="view" aria-labelledby="form-title" hidden>
+        <h2 id="form-title">Nouveau contrôle</h2>
+        <form id="form" novalidate>
+          <div class="field" id="field-titre">
+            <label for="titre">Identifiant de l'hydrant (Titre) <span class="req">obligatoire</span></label>
+            <input
+              id="titre"
+              name="titre"
+              type="text"
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck="false"
+              maxlength="120"
+              aria-describedby="titre-error titre-help"
+              required
+            />
+            <p id="titre-help" class="help">Exemple fictif : SITE-FICTIF/A/00/001/HYD01</p>
+            <div class="scan" id="scan-block">
+              <button type="button" class="btn" id="btn-scan" hidden>Scanner un QR code</button>
+              <p id="scan-unavailable" class="help" hidden></p>
+              <div id="scanner" class="scanner" hidden>
+                <video id="scanner-video" playsinline muted aria-label="Aperçu de la caméra"></video>
+                <button type="button" class="btn" id="btn-scan-stop">Arrêter le scan</button>
+              </div>
+            </div>
+            <p id="titre-error" class="error" hidden></p>
+            <div id="duplicate" class="duplicate" hidden>
+              <p id="duplicate-text"></p>
+              <button type="button" class="btn" id="btn-open-duplicate">Ouvrir le contrôle existant</button>
+            </div>
+          </div>
+
+          <div class="field" id="field-dateControle">
+            <label for="dateControle">Date du contrôle <span class="req">obligatoire</span></label>
+            <input id="dateControle" name="dateControle" type="date" min="2000-01-01" max="2099-12-31" aria-describedby="dateControle-error" required />
+            <p id="dateControle-error" class="error" hidden></p>
+          </div>
+
+          <fieldset class="field" id="field-statut" aria-describedby="statut-error">
+            <legend>Statut <span class="req">obligatoire</span></legend>
+            <div class="choices">
+              <label class="choice"><input type="radio" name="statut" value="OK" /> OK</label>
+              <label class="choice"><input type="radio" name="statut" value="HSH" /> HSH</label>
+            </div>
+            <p id="statut-error" class="error" hidden></p>
+          </fieldset>
+
+          <fieldset class="field" id="field-testHp" aria-describedby="testHp-error testHp-help">
+            <legend>Test HP <span class="req">obligatoire</span></legend>
+            <div class="choices">
+              <label class="choice"><input type="radio" name="testHp" value="OK" /> OK</label>
+              <label class="choice"><input type="radio" name="testHp" value="Nok" /> Nok</label>
+              <label class="choice"><input type="radio" name="testHp" value="" /> Vide</label>
+            </div>
+            <p id="testHp-help" class="help">« Vide » exporte une cellule vide : à choisir explicitement.</p>
+            <p id="testHp-error" class="error" hidden></p>
+          </fieldset>
+
+          <div class="field" id="field-dateDernierTestHp">
+            <label for="dateDernierTestHp">Date du dernier Test HP <span class="opt">facultatif</span></label>
+            <div class="inline">
+              <input id="dateDernierTestHp" name="dateDernierTestHp" type="date" min="2000-01-01" max="2099-12-31" aria-describedby="dateDernierTestHp-error" />
+              <button type="button" class="btn" id="btn-clear-hp">Effacer</button>
+            </div>
+            <p id="dateDernierTestHp-error" class="error" hidden></p>
+          </div>
+
+          <div class="field" id="field-commentaires">
+            <label for="commentaires">Commentaires <span class="opt">facultatif</span></label>
+            <textarea id="commentaires" name="commentaires" rows="3" maxlength="2000" aria-describedby="commentaires-error"></textarea>
+            <p id="commentaires-error" class="error" hidden></p>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary" id="btn-save">Enregistrer</button>
+            <button type="button" class="btn" id="btn-cancel">Retour à la liste</button>
+            <button type="button" class="btn btn-danger" id="btn-delete" hidden>Supprimer</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Prévisualisation et export -->
+      <section id="view-export" class="view" aria-labelledby="export-title" hidden>
+        <h2 id="export-title">Prévisualisation de l'export CSV</h2>
+        <p class="help">
+          Le fichier est uniquement téléchargé sur cet appareil : rien n'est envoyé vers SharePoint ni ailleurs.
+        </p>
+        <div class="table-wrap" tabindex="0" aria-label="Aperçu du tableau exporté">
+          <table id="preview-table">
+            <thead><tr id="preview-head"></tr></thead>
+            <tbody id="preview-body"></tbody>
+          </table>
+        </div>
+        <p id="preview-empty" class="empty" hidden>Aucun contrôle à exporter : le fichier ne contiendra que la ligne d'entêtes.</p>
+        <details>
+          <summary>Voir le texte brut du fichier</summary>
+          <pre id="preview-raw" class="raw"></pre>
+        </details>
+        <label class="checkbox"><input type="checkbox" id="opt-bom" checked /> Inclure le BOM UTF-8 (recommandé pour Excel)</label>
+        <div class="actions">
+          <button type="button" class="btn btn-primary" id="btn-download">Télécharger le CSV</button>
+          <button type="button" class="btn" id="btn-export-back">Retour à la liste</button>
+        </div>
+      </section>
+    </main>
+
+    <noscript><p class="error">Cette application nécessite JavaScript.</p></noscript>
+  </body>
+</html>

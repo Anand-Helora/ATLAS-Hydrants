@@ -1,0 +1,412 @@
+/* ATLAS-Hydrants — feuille de style mobile-first, sans dépendance. */
+
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #14181f;
+  --muted: #4a5361;
+  --border: #c4cad3;
+  --primary: #0b4f9c;
+  --primary-text: #ffffff;
+  --danger: #a3171c;
+  --danger-text: #ffffff;
+  --warn-bg: #fff4d6;
+  --warn-border: #b88a00;
+  --error: #a3171c;
+  --ok-bg: #e3f3e6;
+  --ok-border: #2d7a3a;
+  --focus: #f0a500;
+  --radius: 10px;
+  --tap: 48px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151a;
+    --surface: #1c2129;
+    --text: #eef1f5;
+    --muted: #b4bcc8;
+    --border: #48505c;
+    --primary: #5aa2f0;
+    --primary-text: #0b1420;
+    --danger: #f07a7e;
+    --danger-text: #1a0607;
+    --warn-bg: #3a3012;
+    --warn-border: #d6a925;
+    --error: #ff9b9e;
+    --ok-bg: #173320;
+    --ok-border: #5cc372;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+}
+
+main,
+.app-header,
+.banner,
+.message {
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.app-header {
+  padding: 16px 0 8px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: 20px 0 12px;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+}
+
+.banner {
+  background: var(--warn-bg);
+  border: 2px solid var(--warn-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.banner strong {
+  display: block;
+}
+
+.banner.is-critical {
+  border-color: var(--error);
+}
+
+.message {
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 2px solid var(--ok-border);
+  background: var(--ok-bg);
+}
+
+.message.is-error {
+  border-color: var(--error);
+  background: var(--surface);
+  color: var(--error);
+  font-weight: 600;
+}
+
+.toolbar,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.btn {
+  min-height: var(--tap);
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--radius);
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  flex: 1 1 auto;
+}
+
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-text);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.count {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.record-btn {
+  width: 100%;
+  min-height: var(--tap);
+  text-align: left;
+  padding: 12px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.record-titre {
+  display: block;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.record-meta {
+  display: block;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+form {
+  display: grid;
+  gap: 16px;
+}
+
+.field {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+label,
+legend {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.req,
+.opt {
+  font-weight: normal;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input[type='text'],
+input[type='date'],
+textarea {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  font: inherit;
+  /* 16 px minimum : évite le zoom automatique sur iOS. */
+  font-size: max(1rem, 16px);
+  color: var(--text);
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+}
+
+textarea {
+  resize: vertical;
+}
+
+.inline {
+  display: flex;
+  gap: 8px;
+}
+
+.inline input {
+  flex: 1 1 auto;
+}
+
+.inline .btn {
+  flex: 0 0 auto;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap);
+  min-width: 96px;
+  padding: 8px 14px;
+  margin: 0;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.choice:has(input:checked) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.choice input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  font-weight: normal;
+}
+
+.checkbox input {
+  width: 22px;
+  height: 22px;
+}
+
+.help {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.error {
+  margin: 6px 0 0;
+  color: var(--error);
+  font-weight: 600;
+}
+
+.field.has-error input,
+.field.has-error textarea,
+.field.has-error .choice {
+  border-color: var(--error);
+}
+
+.duplicate {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 2px solid var(--error);
+  border-radius: var(--radius);
+}
+
+.duplicate p {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.scan {
+  margin-top: 10px;
+}
+
+.scanner {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.scanner video {
+  width: 100%;
+  max-height: 60vh;
+  background: #000;
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 90px;
+}
+
+th:first-child,
+td:first-child {
+  min-width: 220px;
+}
+
+.raw {
+  overflow-x: auto;
+  padding: 10px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
+
+details {
+  margin: 12px 0;
+}
+
+summary {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+@media (min-width: 600px) {
+  .btn {
+    flex: 0 0 auto;
+  }
+}

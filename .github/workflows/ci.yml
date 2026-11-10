@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests unitaires (node --test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Installer Node.js LTS
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+
+      - name: Afficher la version de Node.js
+        run: node --version
+
+      - name: Lancer les tests
+        run: npm test
